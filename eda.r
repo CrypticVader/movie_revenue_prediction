@@ -4,7 +4,8 @@ train <- read.csv("train.csv")
 # Correct invalid values
 train[train == "N/A" |
         train == "NA" |
-        train == "#N/A" | train == "NULL" | train == ""] <- NA
+        train == "#N/A" |
+        train == "NULL" | train == "" | train == "<NA>"] <- NA
 
 # Load the testing data set
 test <- read.csv("test.csv")
@@ -12,7 +13,8 @@ test <- read.csv("test.csv")
 # Correct invalid values
 test[test == "N/A" |
        test == "NA" |
-       test == "#N/A" | test == "NULL" | test == ""] <- NA
+       test == "#N/A" |
+       test == "NULL" | test == "" | test == "<NA>"] <- NA
 
 # install.packages("tidyverse")
 library(tidyverse)
@@ -27,7 +29,7 @@ top_missing <- data.frame(column = names(missing)[1:8],
 
 
 # Create the bar plot
-ggplot(top_missing, aes(x = reorder(column,-count), y = count)) +
+ggplot(top_missing, aes(x = reorder(column, -count), y = count)) +
   geom_bar(stat = "identity",
            fill = "skyblue",
            color = "black") +
@@ -259,7 +261,7 @@ top_countries <-
   top_countries[order(top_countries, decreasing = FALSE)]
 
 # Generate a bar plot of the production countries
-par(mar = c(5, 16, 2, 2), cex.lab = 1.5)
+par(mar = c(5, 12, 2, 2), cex.lab = 1.5)
 barplot(
   top_countries,
   horiz = TRUE,
@@ -445,8 +447,9 @@ test$release_year <- year(test$release_date)
 # Count the number of releases by day of the week
 day_counts <- table(train$release_day)
 
-# Create a bar plot
-ggplot(data = data.frame(day = names(day_counts), count = as.numeric(day_counts)), aes(x = factor(day, levels = 1:7), y = count)) +
+# Bar plot of number of releases on different week days
+ggplot(data = data.frame(day = names(day_counts), count = as.numeric(day_counts)),
+       aes(x = factor(day, levels = 1:7), y = count)) +
   geom_bar(stat = "identity", fill = "skyblue") +
   scale_x_discrete(
     labels = c(
@@ -459,10 +462,10 @@ ggplot(data = data.frame(day = names(day_counts), count = as.numeric(day_counts)
       "Sunday"
     )
   ) +
-  labs(x = "Day of the Week", y = "No of releases") +
+  labs(x = "Day of the Week", y = "Number of releases") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Create a categorical plot (catplot)
+# Create a categorical plot of revenue based on the week day of release
 ggplot(train, aes(x = factor(release_day), y = revenue)) +
   geom_boxplot() +
   scale_x_discrete(
@@ -479,3 +482,522 @@ ggplot(train, aes(x = factor(release_day), y = revenue)) +
   labs(x = "Release Day", y = "Revenue") +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   ggtitle("Revenue on Different Days of the Week of Release")
+
+# Create a box plot of the run time of movies based on its release week day
+ggplot(train, aes(x = factor(release_day), y = runtime)) +
+  geom_boxplot() +
+  scale_x_discrete(
+    labels = c(
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday"
+    )
+  ) +
+  labs(x = "Release Day", y = "Runtime") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  ggtitle("Runtime on Different Days of the Week of Release")
+
+# Create a categorical plot of revenue of movies based on its release month
+ggplot(train, aes(x = factor(release_month), y = revenue)) +
+  geom_boxplot() +
+  scale_x_discrete(labels = month.abb) +
+  labs(x = "Release Month", y = "Revenue") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  ggtitle("Revenue on Different Months of Release")
+
+# Aggregate average revenue per year
+yearly <-
+  aggregate(revenue ~ release_year, data = train, FUN = mean)
+
+# Create a line plot of mean revenue of movies released every year
+ggplot(yearly, aes(x = release_year, y = revenue)) +
+  geom_line() +
+  labs(x = "Year", y = "Revenue") +
+  ggtitle("Average Revenue per Year") +
+  theme_minimal()
+
+# ggsave("fig.png", width = 15, height = 8)
+
+# Histogram of film length in hours
+ggplot(train, aes(x = runtime, y = ..density..)) +
+  geom_histogram(fill = "skyblue", bins = 40) +
+  labs(x = "Length of Film (hours)", y = "Density") +
+  ggtitle("Distribution of Length of Film in Hours") +
+  theme_minimal()
+
+# Scatter plot of film length vs. revenue
+ggplot(train, aes(x = runtime, y = revenue)) +
+  geom_point(color = "red") +
+  labs(x = "Runtime", y = "Revenue") +
+  ggtitle("Runtime vs. Revenue") +
+  theme_minimal()
+
+# Scatter plot of film length vs. popularity
+ggplot(train, aes(x = runtime, y = popularity)) +
+  geom_point(color = "green") +
+  labs(x = "Runtime", y = "Popularity") +
+  ggtitle("Runtime vs. Popularity") +
+  theme_minimal()
+
+# Count occurrences of each value in the homepage column
+homepage_counts <- table(train$homepage)
+
+top_homepages <- sort(homepage_counts, decreasing = TRUE)[1:5]
+top_homepages
+
+# Plotting by genre
+genres <-
+  train[train$genres %>% lengths() == 1, c('genres', 'revenue', 'budget', 'popularity', 'runtime')]
+rownames(genres_df) <- NULL
+genres$genres <- sapply(genres_df$genres, function(x)
+  pluck(x[[1]], "name"))
+
+# Group by 'genres' and calculate the mean
+genres <- genres %>%
+  group_by(genres) %>%
+  summarize(
+    popularity = mean(popularity, na.rm = TRUE),
+    revenue = mean(revenue, na.rm = TRUE),
+    budget = mean(budget, na.rm = TRUE),
+    runtime = mean(runtime, na.rm = TRUE)
+  )
+
+par(mfrow = c(2, 2))
+
+barplot(
+  genres$revenue,
+  names.arg = genres$genres,
+  main = "Mean Revenue by Genre",
+  xlab = "Revenue",
+  ylab = "Genres"
+)
+barplot(
+  genres$budget,
+  names.arg = genres$genres,
+  main = "Mean Budget by Genre",
+  xlab = "Budget",
+  ylab = "Genres"
+)
+barplot(
+  genres$popularity,
+  names.arg = genres$genres,
+  main = "Mean Popularity by Genre",
+  xlab = "Popularity",
+  ylab = "Genres"
+)
+barplot(
+  genres$runtime,
+  names.arg = genres$genres,
+  main = "Mean Runtime by Genre",
+  xlab = "Runtime",
+  ylab = "Genres"
+)
+
+par(mfrow = c(1, 1))
+
+# Function to extract names from from cast & crew columns
+extract_names <- function(x) {
+  if (length(x) == 0) {
+    return(character(0))
+  } else {
+    return(sapply(x, function(i)
+      pluck(i, "name")))
+  }
+}
+
+# Top crew members
+crew <- lapply(train$crew, function(x)
+  extract_names(x))
+crew_flattened <- unlist(crew)
+crew_name_counts <- table(crew_flattened)
+top_15_crew <- head(sort(crew_name_counts, decreasing = TRUE), 15)
+print(top_15_crew)
+
+# Top cast members
+cast <- lapply(train$cast, function(x)
+  extract_names(x))
+cast_flattened <- unlist(cast)
+cast_name_counts <- table(cast_flattened)
+top_15_cast <- head(sort(cast_name_counts, decreasing = TRUE), 15)
+print(top_15_cast)
+
+# Function to prepare the data frame for training
+
+# install.packages("caret")
+library(caret)
+
+# TODO This method is broken
+prepare_data <- function(df) {
+  df$'_budget_runtime_ratio' <-
+    with(df, ifelse(runtime == 0, 0, budget / runtime))
+  
+  df$'_budget_runtime_ratio'[is.infinite(df$'_budget_runtime_ratio') |
+                               is.nan(df$'_budget_runtime_ratio')] <-
+    0
+  
+  df$'_budget_popularity_ratio' <- df$budget / df$popularity
+  
+  df$'_budget_year_ratio' <-
+    with(df, ifelse(is.na(budget), 0, budget) / (release_year * release_year))
+  
+  df$'_releaseYear_popularity_ratio' <-
+    df$release_year / df$popularity
+  
+  df$'_releaseYear_popularity_ratio2' <-
+    df$popularity / df$release_year
+  
+  df$budget <- log1p(df$budget)
+  
+  df$collection_name <- 1
+  
+  df$collection_name <-
+    sapply(df$belongs_to_collection, function(x)
+      ifelse(is.na(x) |
+               length(x) == 0, 0, as.character(pluck(x, "name"))))
+  
+  df$has_homepage <- 1
+  
+  df$has_homepage[is.na(df$homepage)] <- 0
+  
+  le <-
+    caret::preProcess(as.data.frame(df$collection_name), method = "medianImpute")$medianImpute$yimpute
+  df$collection_name <-
+    as.integer(factor(df$collection_name, levels = unique(le)))
+  
+  le <-
+    caret::preProcess(as.data.frame(df$original_language), method = "medianImpute")$medianImpute$yimpute
+  df$original_language <-
+    as.integer(factor(df$original_language, levels = unique(le)))
+  
+  df$'_num_Keywords' <- sapply(df$Keywords, length)
+  
+  df$'_num_Cast' <-
+    sapply(df$cast, function(x)
+      ifelse(length(x) == 0 |
+               class(x) == "logical", length(""), length(x)))
+  
+  df$isbelongto_coll <-
+    sapply(df$belongs_to_collection, function(x)
+      ifelse(is.na(x), 0, 1))
+  
+  df$isTaglineNA <-
+    sapply(df$tagline, function(x)
+      ifelse(is.na(x) || length(x) == 0, 1, 0))
+  
+  
+  df$isOriginalLanguageEng <-
+    sapply(df$original_language, function(x)
+      ifelse(as.character(x) == "en", 1, 0))
+  
+  df$ismovie_released <-
+    sapply(df$status, function(x)
+      ifelse(x == "Released", 1, 0))
+  
+  df$no_spoken_languages <-
+    sapply(df$spoken_languages, function(x)
+      ifelse(class(x) == 'logical' |
+               length(x) == 0, length(""), length(x)))
+  
+  df$original_title_letter_count <-
+    sapply(df$original_title, length)
+  
+  df$original_title_word_count <-
+    sapply(df$original_title, function(x)
+      ifelse(is.na(x), 0, as.numeric(length(
+        strsplit(as.character(x), " ")
+      ))))
+  
+  df$title_word_count <-
+    sapply(df$title, function(x)
+      ifelse(is.na(x), 0, as.numeric(length(
+        strsplit(as.character(x), " ")
+      ))))
+  
+  df$overview_word_count <-
+    sapply(df$overview, function(x)
+      ifelse(is.na(x), 0, as.numeric(length(
+        strsplit(as.character(x), " ")
+      ))))
+  
+  df$tagline_word_count <-
+    sapply(df$tagline, function(x)
+      ifelse(is.na(x), 0, as.numeric(length(
+        strsplit(as.character(x), " ")
+      ))))
+  
+  df$collection_id <-
+    sapply(df$belongs_to_collection, function(x)
+      ifelse(is.na(x) |
+               length(x) == 0, NA, as.numeric(pluck(x, "id"))))
+  
+  df$production_countries_count <-
+    sapply(df$production_countries, length)
+  
+  df$production_companies_count <-
+    sapply(df$production_companies, length)
+  
+  df$cast_count <-
+    sapply(df$cast, function(x)
+      ifelse(class(x) == 'logical' |
+               length(x) == 0, length(""), length(x)))
+  
+  df$crew_count <-
+    sapply(df$crew, function(x)
+      ifelse(class(x) == 'logical' |
+               length(x) == 0, length(""), length(x)))
+  
+  df$genders_0_crew <-
+    sapply(df$crew, function(row)
+      ifelse(class(row) == 'logical' |
+               length(row) == 0, 0, sum(sapply(row, function(member)
+                 ifelse(member[["gender"]] == 0, 0, 1)))))
+  
+  df$genders_1_crew <-
+    sapply(df$crew, function(row)
+      ifelse(class(row) == 'logical' |
+               length(row) == 0, 0, sum(sapply(row, function(member)
+                 ifelse(member[["gender"]] == 1, 0, 1)))))
+  
+  df$genders_2_crew <-
+    sapply(df$crew, function(row)
+      ifelse(class(row) == 'logical' |
+               length(row) == 0, 0, sum(sapply(row, function(member)
+                 ifelse(member[["gender"]] == 2, 0, 1)))))
+  
+  cols <-
+    c('genres',
+      'production_countries',
+      'spoken_languages',
+      'production_companies')
+  
+  for (col in cols) {
+    df[[col]] <- lapply(df[[col]], function(x) {
+      x <- sapply(x, function(d) {
+        if (length(d) <= 1) {
+          return(paste0(col, '_etc'))
+        } else {
+          return(ifelse(d$name %in% train_dict[[col]], d$name, paste0(col, '_etc')))
+        }
+      })
+      x <- unique(unlist(x))
+      x <- sort(x)
+      return(paste(x, collapse = ','))
+    })
+    
+    temp <- strsplit(as.character(df[[col]]), ',')
+    temp <- lapply(temp, function(x) {
+      x <- as.data.frame(table(x))
+      names(x) <- c(col, paste0(col, '_', x[[col]]))
+      return(x)
+    })
+    
+    temp <- bind_rows(temp)
+    
+    df <- bind_cols(df, temp)
+  }
+  
+  df <- df[,!grepl("genres_etc", names(df))]
+  
+  cols_to_normalize = c(
+    'runtime',
+    'popularity',
+    'budget',
+    '_budget_runtime_ratio',
+    '_budget_year_ratio',
+    '_budget_popularity_ratio',
+    '_releaseYear_popularity_ratio',
+    '_releaseYear_popularity_ratio2',
+    '_num_Keywords',
+    '_num_Cast',
+    'no_spoken_languages',
+    'original_title_letter_count',
+    'original_title_word_count',
+    'title_word_count',
+    'overview_word_count',
+    'tagline_word_count',
+    'production_countries_count',
+    'production_companies_count',
+    'cast_count',
+    'crew_count',
+    'genders_0_crew',
+    'genders_1_crew',
+    'genders_2_crew'
+  )
+  
+  for (col in cols_to_normalize) {
+    print(col)
+    x_array <- df[[col]]
+    x_array <- replace(x_array, is.na(x_array), 0)
+    x_array <- sapply(x_array, as.numeric)
+    X_norm <- scale(x_array)
+    df[[col]] <- X_norm
+  }
+  
+  # tag13
+  print("tag13")
+  
+  df <-
+    subset(df, select = !(
+      names(df) %in% c(
+        'belongs_to_collection',
+        'genres',
+        'homepage',
+        'imdb_id',
+        'overview',
+        'id',
+        'poster_path',
+        'production_companies',
+        'production_countries',
+        'release_date',
+        'spoken_languages',
+        'status',
+        'title',
+        'Keywords',
+        'cast',
+        'crew',
+        'original_language',
+        'original_title',
+        'tagline',
+        'collection_id'
+      )
+    ))  %>%
+    replace(is.na(.), 0.0)
+  
+  return(df)
+}
+
+dict_columns = c(
+  'belongs_to_collection',
+  'genres',
+  'production_companies',
+  'production_countries',
+  'spoken_languages',
+  'Keywords',
+  'cast',
+  'crew'
+)
+
+get_json <- function(df) {
+  result <- list()
+  for (col in dict_columns) {
+    d <- list()
+    rows <- df[[col]]
+    if (col == 'belongs_to_collection') {
+      for (i in rows) {
+        if (!is.na(i["name"]) & !is.null(i["name"])) {
+          if (!(i["name"] %in% names(d))) {
+            d[i[["name"]]] <- 0
+          } else {
+            d[i[["name"]]] <- as.numeric(d[i[["name"]]]) + 1
+          }
+        }
+      }
+    } else {
+      for (row in rows) {
+        for (i in row) {
+          if (!is.na(i["name"]) & !is.null(i["name"])) {
+            if (!(i["name"] %in% names(d))) {
+              d[i[["name"]]] <- 0
+            } else {
+              if (!is.null(d[[i[["name"]]]]))
+                d[i[["name"]]] <- as.numeric(d[i[["name"]]]) + 1
+            }
+          }
+        }
+      }
+    }
+    result[[col]] <- d
+  }
+  return(result)
+}
+
+train_dict = get_json(train)
+test_dict = get_json(test)
+
+for (col in dict_columns) {
+  remove <- c()
+  train_id <- unique(names(train_dict[[col]]))
+  test_id <- unique(names(test_dict[[col]]))
+  remove <-
+    c(remove,
+      setdiff(train_id, test_id),
+      setdiff(test_id, train_id))
+  
+  for (i in union(train_id, test_id)[!union(train_id, test_id) %in% remove]) {
+    if (train_dict[[col]][[i]] < 10 || i == '') {
+      remove <- c(remove, i)
+    }
+  }
+  
+  for (i in remove) {
+    if (i %in% names(train_dict[[col]])) {
+      train_dict[[col]][[i]] <- NULL
+    }
+    if (i %in% names(test_dict[[col]])) {
+      test_dict[[col]][[i]] <- NULL
+    }
+  }
+}
+
+test$revenue <- NA
+
+all_data <- bind_rows(train, test)
+
+all_data <- prepare_data(all_data)
+
+all_data <- all_data %>%
+  mutate(row_num = 1:nrow(.)) %>%
+  select(-row_num)
+
+train <- all_data[1:nrow(train),]
+test <- all_data[(nrow(train) + 1):nrow(all_data),]
+
+print(dim(train))
+
+train <- train[, -which(names(train) == "revenue")]
+head(all_data)
+
+y <- train$log_revenue
+X <- train[, !(names(train) %in% c("log_revenue"))]
+
+set.seed(42)  # Setting seed for reproducibility
+train_indices <- createDataPartition(y, p = 0.9, list = FALSE)
+X_train <- X[train_indices, ]
+X_test <- X[-train_indices, ]
+y_train <- y[train_indices]
+y_test <- y[-train_indices]
+
+# Create cross-validation iterator
+kfold <-
+  createFolds(y_train,
+              k = 3,
+              list = TRUE,
+              returnTrain = FALSE)
+
+print(colnames(X))
+print(y)
+
+
+# All metrics used to measure success of an algorithm
+show_metrics <- function(y_test, y_pred) {
+  print(paste("Mean Squared Log Error =", mean((
+    log(y_pred + 1) - log(y_test + 1)
+  ) ^ 2)))
+  print(paste("Root Mean Squared Log Error =", sqrt(mean((
+    log(y_pred + 1) - log(y_test + 1)
+  ) ^ 2))))
+  print(paste("Mean Squared Error =", mean((y_pred - y_test) ^ 2)))
+  print(paste("Root Mean Squared Error =", sqrt(mean((y_pred - y_test) ^
+                                                       2
+  ))))
+  print(paste("R^2 =", cor(y_pred, y_test) ^ 2))
+}
+
+# Linear Regression
+lm <- lm(y_train ~ X_train)
+y_lm_pred <- predict(lm, newdata = X_test)
+show_metrics(y_test, y_lm_pred)
