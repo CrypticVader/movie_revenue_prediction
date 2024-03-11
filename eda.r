@@ -1,3 +1,14 @@
+# install.packages("tidyverse", "jsonlite", "dplyr", "wordcloud", "tm", "slam", "stringr", "lubridate", "caret", "keras")
+library(tidyverse)
+library(jsonlite)
+library(dplyr)
+library(wordcloud)
+library(tm)
+library(slam)
+library(stringr)
+library(lubridate)
+library(caret)
+
 # Load the training data set
 train <- read.csv("train.csv")
 
@@ -16,9 +27,6 @@ test[test == "N/A" |
        test == "#N/A" |
        test == "NULL" | test == "" | test == "<NA>"] <- NA
 
-# install.packages("tidyverse")
-library(tidyverse)
-
 # Calculate the number of missing values for each column and sort in descending order
 missing <-
   train %>% is.na() %>% colSums() %>% sort(decreasing = TRUE)
@@ -26,7 +34,6 @@ missing <-
 # Create a data frame for the top 8 columns with the most missing values
 top_missing <- data.frame(column = names(missing)[1:8],
                           count = missing[1:8])
-
 
 # Create the bar plot
 ggplot(top_missing, aes(x = reorder(column, -count), y = count)) +
@@ -39,7 +46,6 @@ ggplot(top_missing, aes(x = reorder(column, -count), y = count)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 # Function for parsing dictionary fields
-library(jsonlite)
 
 convert_string_to_dict <- function(string_value) {
   if (is.na(string_value) ||
@@ -84,7 +90,6 @@ convert_string_to_dict <- function(string_value) {
 }
 
 # Parsing columns in the training data set
-library(dplyr)
 
 train <- train %>%
   rowwise() %>%
@@ -178,12 +183,6 @@ barplot(
 train %>%
   mutate(tagline_flag = ifelse(!is.na(tagline), 1, 0)) %>%
   count(tagline_flag)
-
-# install.packages(c('wordcloud', 'tm', 'slam', 'stringr'))
-library(wordcloud)
-library(tm)
-library(slam)
-library(stringr)
 
 # Concatenate all taglines into a single string
 taglines <-
@@ -396,6 +395,8 @@ test$crew[sapply(test$crew, is.null)] <- NA
 # Calculate the natural log of revenue & budget
 train$log_revenue <- log1p(train$revenue)
 train$log_budget <- log1p(train$budget)
+test$log_revenue <- log1p(test$revenue)
+test$log_budget <- log1p(test$budget)
 
 summary(train$revenue)
 
@@ -410,10 +411,6 @@ hist(train$popularity, breaks = 30, col = "red")
 
 # Scatter plot between popularity & revenue
 ggplot(data = train, aes(x = popularity, y = revenue)) + geom_point()
-
-# Load necessary packages
-library(lubridate)
-library(ggplot2)
 
 # Define the date conversion function
 date <- function(x) {
@@ -625,73 +622,68 @@ cast_name_counts <- table(cast_flattened)
 top_15_cast <- head(sort(cast_name_counts, decreasing = TRUE), 15)
 print(top_15_cast)
 
-# Function to prepare the data frame for training
-
-# install.packages("caret")
-library(caret)
-
-# TODO This method is broken
+# Pre-processing the data frame for training
 prepare_data <- function(df) {
-  df$'_budget_runtime_ratio' <-
+  impute(df$runtime, 0)
+  impute(df$budget, 0)
+  impute(df$popularity, 0)
+  impute(df$original_language, "")
+  
+  df$budget_runtime_ratio <-
     with(df, ifelse(runtime == 0, 0, budget / runtime))
   
-  df$'_budget_runtime_ratio'[is.infinite(df$'_budget_runtime_ratio') |
-                               is.nan(df$'_budget_runtime_ratio')] <-
+  df$budget_runtime_ratio[is.infinite(df$budget_runtime_ratio) |
+                            is.nan(df$budget_runtime_ratio)] <-
     0
   
-  df$'_budget_popularity_ratio' <- df$budget / df$popularity
+  df$budget_popularity_ratio <-
+    df$budget / df$popularity
   
-  df$'_budget_year_ratio' <-
-    with(df, ifelse(is.na(budget), 0, budget) / (release_year * release_year))
+  df$budget_year_ratio <-
+    with(df,
+         ifelse(is.na(budget), 0, budget) / (release_year * release_year))
   
-  df$'_releaseYear_popularity_ratio' <-
+  df$releaseYear_popularity_ratio <-
     df$release_year / df$popularity
   
-  df$'_releaseYear_popularity_ratio2' <-
+  df$releaseYear_popularity_ratio2 <-
     df$popularity / df$release_year
   
   df$budget <- log1p(df$budget)
   
-  df$collection_name <- 1
-  
   df$collection_name <-
     sapply(df$belongs_to_collection, function(x)
-      ifelse(is.na(x) |
-               length(x) == 0, 0, as.character(pluck(x, "name"))))
+      ifelse(class(x) == 'logical' ||
+               length(x) == 0, 0, pluck(x, "name")))
   
   df$has_homepage <- 1
-  
   df$has_homepage[is.na(df$homepage)] <- 0
   
-  le <-
-    caret::preProcess(as.data.frame(df$collection_name), method = "medianImpute")$medianImpute$yimpute
+  df$isOriginalLanguageEng <-
+    sapply(df$original_language, function(x)
+      ifelse(x == "en", 1, 0))
+  
+  labs.coll <- LabelEncoder.fit(df$collection_name)
   df$collection_name <-
-    as.integer(factor(df$collection_name, levels = unique(le)))
+    transform(labs.coll, df$collection_name)
   
-  le <-
-    caret::preProcess(as.data.frame(df$original_language), method = "medianImpute")$medianImpute$yimpute
+  labs.lang <- LabelEncoder.fit(df$original_language)
   df$original_language <-
-    as.integer(factor(df$original_language, levels = unique(le)))
+    transform(labs.lang, df$original_language)
   
-  df$'_num_Keywords' <- sapply(df$Keywords, length)
+  df$num_Keywords <- sapply(df$Keywords, length)
   
-  df$'_num_Cast' <-
+  df$num_cast <-
     sapply(df$cast, function(x)
-      ifelse(length(x) == 0 |
-               class(x) == "logical", length(""), length(x)))
+      ifelse(class(x) == "logical", 0, length(x)))
   
-  df$isbelongto_coll <-
-    sapply(df$belongs_to_collection, function(x)
-      ifelse(is.na(x), 0, 1))
+  df$isbelongto_coll <- 1
+  df$isbelongto_coll[is.na(df$belongs_to_collection)] <-
+    0
   
   df$isTaglineNA <-
     sapply(df$tagline, function(x)
       ifelse(is.na(x) || length(x) == 0, 1, 0))
-  
-  
-  df$isOriginalLanguageEng <-
-    sapply(df$original_language, function(x)
-      ifelse(as.character(x) == "en", 1, 0))
   
   df$ismovie_released <-
     sapply(df$status, function(x)
@@ -699,40 +691,40 @@ prepare_data <- function(df) {
   
   df$no_spoken_languages <-
     sapply(df$spoken_languages, function(x)
-      ifelse(class(x) == 'logical' |
-               length(x) == 0, length(""), length(x)))
+      ifelse(class(x) == 'logical', 0, length(x)))
   
   df$original_title_letter_count <-
-    sapply(df$original_title, length)
+    sapply(df$original_title, function(x)
+      ifelse(is.na(x), 0, nchar(x)))
   
   df$original_title_word_count <-
     sapply(df$original_title, function(x)
-      ifelse(is.na(x), 0, as.numeric(length(
-        strsplit(as.character(x), " ")
-      ))))
+      ifelse(class(x) == 'logical', 0, length(unlist(strsplit(
+        x, " "
+      )))))
   
   df$title_word_count <-
     sapply(df$title, function(x)
-      ifelse(is.na(x), 0, as.numeric(length(
+      ifelse(is.na(x), 0, length(unlist(
         strsplit(as.character(x), " ")
       ))))
   
   df$overview_word_count <-
     sapply(df$overview, function(x)
-      ifelse(is.na(x), 0, as.numeric(length(
+      ifelse(is.na(x), 0, length(unlist(
         strsplit(as.character(x), " ")
       ))))
   
   df$tagline_word_count <-
     sapply(df$tagline, function(x)
-      ifelse(is.na(x), 0, as.numeric(length(
+      ifelse(is.na(x), 0, length(unlist(
         strsplit(as.character(x), " ")
       ))))
   
   df$collection_id <-
     sapply(df$belongs_to_collection, function(x)
-      ifelse(is.na(x) |
-               length(x) == 0, NA, as.numeric(pluck(x, "id"))))
+      ifelse(class(x) == 'logical' ||
+               length(x) == 0, NA, pluck(x, "id")))
   
   df$production_countries_count <-
     sapply(df$production_countries, length)
@@ -742,63 +734,58 @@ prepare_data <- function(df) {
   
   df$cast_count <-
     sapply(df$cast, function(x)
-      ifelse(class(x) == 'logical' |
-               length(x) == 0, length(""), length(x)))
+      ifelse(class(x) == 'logical', 0, length(x)))
   
   df$crew_count <-
     sapply(df$crew, function(x)
-      ifelse(class(x) == 'logical' |
-               length(x) == 0, length(""), length(x)))
+      ifelse(class(x) == 'logical', 0, length(x)))
   
   df$genders_0_crew <-
     sapply(df$crew, function(row)
-      ifelse(class(row) == 'logical' |
+      ifelse(class(row) == 'logical' ||
                length(row) == 0, 0, sum(sapply(row, function(member)
-                 ifelse(member[["gender"]] == 0, 0, 1)))))
+                 ifelse(member[["gender"]] == 0, 1, 0)))))
   
   df$genders_1_crew <-
     sapply(df$crew, function(row)
-      ifelse(class(row) == 'logical' |
+      ifelse(class(row) == 'logical' ||
                length(row) == 0, 0, sum(sapply(row, function(member)
-                 ifelse(member[["gender"]] == 1, 0, 1)))))
+                 ifelse(member[["gender"]] == 1, 1, 0)))))
   
   df$genders_2_crew <-
     sapply(df$crew, function(row)
-      ifelse(class(row) == 'logical' |
+      ifelse(class(row) == 'logical' ||
                length(row) == 0, 0, sum(sapply(row, function(member)
-                 ifelse(member[["gender"]] == 2, 0, 1)))))
+                 ifelse(member[["gender"]] == 2, 1, 0)))))
   
-  cols <-
-    c('genres',
-      'production_countries',
-      'spoken_languages',
-      'production_companies')
+  cols <- c('genres',
+            'production_countries',
+            'spoken_languages',
+            'production_companies')
   
   for (col in cols) {
-    df[[col]] <- lapply(df[[col]], function(x) {
-      x <- sapply(x, function(d) {
-        if (length(d) <= 1) {
-          return(paste0(col, '_etc'))
-        } else {
-          return(ifelse(d$name %in% train_dict[[col]], d$name, paste0(col, '_etc')))
+    df[[col]] <-
+      sapply(df[[col]], function(row)
+        unlist(sapply(row, function(x)
+          pluck(x, "name", .default = NA)))) %>%
+      sapply(function(row) {
+        newRow = list()
+        for (i in row) {
+          if (i %in% names(train_dict[[col]])) {
+            newRow = list(newRow, i)
+          } else {
+            newRow = list(newRow, as.character(glue::glue("{col}_etc")))
+          }
         }
-      })
-      x <- unique(unlist(x))
-      x <- sort(x)
-      return(paste(x, collapse = ','))
-    })
-    
-    temp <- strsplit(as.character(df[[col]]), ',')
-    temp <- lapply(temp, function(x) {
-      x <- as.data.frame(table(x))
-      names(x) <- c(col, paste0(col, '_', x[[col]]))
-      return(x)
-    })
-    
-    temp <- bind_rows(temp)
-    
-    df <- bind_cols(df, temp)
+        
+        newRow <-
+          newRow %>% unlist %>% unique %>% unlist %>% sort %>% unlist
+        return(newRow)
+      }) %>%
+      sapply(paste, collapse = ",")
   }
+  
+  df <- dummy_columns(df, split = ',', select_columns = cols)
   
   df <- df[,!grepl("genres_etc", names(df))]
   
@@ -806,13 +793,13 @@ prepare_data <- function(df) {
     'runtime',
     'popularity',
     'budget',
-    '_budget_runtime_ratio',
-    '_budget_year_ratio',
-    '_budget_popularity_ratio',
-    '_releaseYear_popularity_ratio',
-    '_releaseYear_popularity_ratio2',
-    '_num_Keywords',
-    '_num_Cast',
+    'budget_runtime_ratio',
+    'budget_year_ratio',
+    'budget_popularity_ratio',
+    'releaseYear_popularity_ratio',
+    'releaseYear_popularity_ratio2',
+    'num_Keywords',
+    'num_cast',
     'no_spoken_languages',
     'original_title_letter_count',
     'original_title_word_count',
@@ -829,16 +816,12 @@ prepare_data <- function(df) {
   )
   
   for (col in cols_to_normalize) {
-    print(col)
     x_array <- df[[col]]
     x_array <- replace(x_array, is.na(x_array), 0)
     x_array <- sapply(x_array, as.numeric)
-    X_norm <- scale(x_array)
+    X_norm <- as.list(scale(x_array))
     df[[col]] <- X_norm
   }
-  
-  # tag13
-  print("tag13")
   
   df <-
     subset(df, select = !(
@@ -867,7 +850,6 @@ prepare_data <- function(df) {
     ))  %>%
     replace(is.na(.), 0.0)
   
-  return(df)
 }
 
 dict_columns = c(
@@ -978,10 +960,6 @@ kfold <-
               list = TRUE,
               returnTrain = FALSE)
 
-print(colnames(X))
-print(y)
-
-
 # All metrics used to measure success of an algorithm
 show_metrics <- function(y_test, y_pred) {
   print(paste("Mean Squared Log Error =", mean((
@@ -997,7 +975,43 @@ show_metrics <- function(y_test, y_pred) {
   print(paste("R^2 =", cor(y_pred, y_test) ^ 2))
 }
 
-# Linear Regression
-lm <- lm(y_train ~ X_train)
-y_lm_pred <- predict(lm, newdata = X_test)
-show_metrics(y_test, y_lm_pred)
+# Artificial Neural Network
+
+# install.packages("remotes")
+remotes::install_github("rstudio/tensorflow")
+reticulate::install_python('3.10:latest')
+library(tensorflow)
+library(keras)
+install_tensorflow(envname = "r-tensorflow")
+
+model <- keras_model_sequential() %>%
+  layer_dense(units = 356, activation = "relu", input_shape = dim(X)[2]) %>%
+  layer_dense(units = 356, activation = "relu") %>%
+  layer_dense(units = 256, activation = "relu") %>%
+  layer_dense(units = 1)
+
+# Compile the model
+model %>% compile(
+  optimizer = optimizer_rmsprop(),
+  loss = "mse",
+  metrics = list("mean_squared_logarithmic_error")
+)
+
+# Train the model
+epochs <- 100
+history <- model %>% fit(
+  X_train, y_train,
+  epochs = epochs,
+  verbose = 0
+)
+
+# Make predictions on test data
+test_pred <- model %>% predict(X_test)
+
+# Define a function to show metrics
+show_metrics <- function(true, pred) {
+  # Define your metric calculations here
+}
+
+# Call the show_metrics function
+show_metrics(y_test, test_pred)
