@@ -36,7 +36,7 @@ top_missing <- data.frame(column = names(missing)[1:8],
                           count = missing[1:8])
 
 # Create the bar plot
-ggplot(top_missing, aes(x = reorder(column, -count), y = count)) +
+ggplot(top_missing, aes(x = reorder(column,-count), y = count)) +
   geom_bar(stat = "identity",
            fill = "skyblue",
            color = "black") +
@@ -46,7 +46,6 @@ ggplot(top_missing, aes(x = reorder(column, -count), y = count)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 # Function for parsing dictionary fields
-
 convert_string_to_dict <- function(string_value) {
   if (is.na(string_value) ||
       is.null(string_value) || string_value == "") {
@@ -395,7 +394,7 @@ test$crew[sapply(test$crew, is.null)] <- NA
 # Calculate the natural log of revenue & budget
 train$log_revenue <- log1p(train$revenue)
 train$log_budget <- log1p(train$budget)
-test$log_revenue <- log1p(test$revenue)
+# test$log_revenue <- log1p(test$revenue)
 test$log_budget <- log1p(test$budget)
 
 summary(train$revenue)
@@ -549,8 +548,8 @@ top_homepages
 # Plotting by genre
 genres <-
   train[train$genres %>% lengths() == 1, c('genres', 'revenue', 'budget', 'popularity', 'runtime')]
-rownames(genres_df) <- NULL
-genres$genres <- sapply(genres_df$genres, function(x)
+rownames(genres) <- NULL
+genres$genres <- sapply(genres$genres, function(x)
   pluck(x[[1]], "name"))
 
 # Group by 'genres' and calculate the mean
@@ -787,7 +786,7 @@ prepare_data <- function(df) {
   
   df <- dummy_columns(df, split = ',', select_columns = cols)
   
-  df <- df[,!grepl("genres_etc", names(df))]
+  df <- df[, !grepl("genres_etc", names(df))]
   
   cols_to_normalize = c(
     'runtime',
@@ -925,6 +924,11 @@ for (col in dict_columns) {
   }
 }
 
+library(plyr)
+library(Hmisc)
+library(CatEncoders)
+library(fastDummies)
+
 test$revenue <- NA
 
 all_data <- bind_rows(train, test)
@@ -935,21 +939,21 @@ all_data <- all_data %>%
   mutate(row_num = 1:nrow(.)) %>%
   select(-row_num)
 
-train <- all_data[1:nrow(train),]
-test <- all_data[(nrow(train) + 1):nrow(all_data),]
+train <- all_data[1:nrow(train), ]
+test <- all_data[(nrow(train) + 1):nrow(all_data), ]
 
 print(dim(train))
 
-train <- train[, -which(names(train) == "revenue")]
+train <- train[,-which(names(train) == "revenue")]
 head(all_data)
 
 y <- train$log_revenue
-X <- train[, !(names(train) %in% c("log_revenue"))]
+X <- train[,!(names(train) %in% c("log_revenue"))]
 
 set.seed(42)  # Setting seed for reproducibility
 train_indices <- createDataPartition(y, p = 0.9, list = FALSE)
-X_train <- X[train_indices, ]
-X_test <- X[-train_indices, ]
+X_train <- X[train_indices,]
+X_test <- X[-train_indices,]
 y_train <- y[train_indices]
 y_test <- y[-train_indices]
 
@@ -960,7 +964,7 @@ kfold <-
               list = TRUE,
               returnTrain = FALSE)
 
-# All metrics used to measure success of an algorithm
+# Every metric used to measure success of an algorithm
 show_metrics <- function(y_test, y_pred) {
   print(paste("Mean Squared Log Error =", mean((
     log(y_pred + 1) - log(y_test + 1)
@@ -976,16 +980,12 @@ show_metrics <- function(y_test, y_pred) {
 }
 
 # Artificial Neural Network
-
-# install.packages("remotes")
-remotes::install_github("rstudio/tensorflow")
-reticulate::install_python('3.10:latest')
-library(tensorflow)
 library(keras)
-install_tensorflow(envname = "r-tensorflow")
 
 model <- keras_model_sequential() %>%
-  layer_dense(units = 356, activation = "relu", input_shape = dim(X)[2]) %>%
+  layer_dense(units = 356,
+              activation = "relu",
+              input_shape = dim(X)[2]) %>%
   layer_dense(units = 356, activation = "relu") %>%
   layer_dense(units = 256, activation = "relu") %>%
   layer_dense(units = 1)
@@ -999,19 +999,12 @@ model %>% compile(
 
 # Train the model
 epochs <- 100
-history <- model %>% fit(
-  X_train, y_train,
-  epochs = epochs,
-  verbose = 0
-)
+history <- model %>% fit(X_train, y_train,
+                         epochs = epochs,
+                         verbose = 0)
 
 # Make predictions on test data
 test_pred <- model %>% predict(X_test)
-
-# Define a function to show metrics
-show_metrics <- function(true, pred) {
-  # Define your metric calculations here
-}
 
 # Call the show_metrics function
 show_metrics(y_test, test_pred)
