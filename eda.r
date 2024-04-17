@@ -36,7 +36,7 @@ top_missing <- data.frame(column = names(missing)[1:8],
                           count = missing[1:8])
 
 # Create the bar plot
-ggplot(top_missing, aes(x = reorder(column,-count), y = count)) +
+ggplot(top_missing, aes(x = reorder(column, -count), y = count)) +
   geom_bar(stat = "identity",
            fill = "skyblue",
            color = "black") +
@@ -786,7 +786,7 @@ prepare_data <- function(df) {
   
   df <- dummy_columns(df, split = ',', select_columns = cols)
   
-  df <- df[, !grepl("genres_etc", names(df))]
+  df <- df[,!grepl("genres_etc", names(df))]
   
   cols_to_normalize = c(
     'runtime',
@@ -939,21 +939,21 @@ all_data <- all_data %>%
   mutate(row_num = 1:nrow(.)) %>%
   select(-row_num)
 
-train <- all_data[1:nrow(train), ]
-test <- all_data[(nrow(train) + 1):nrow(all_data), ]
+train <- all_data[1:nrow(train),]
+test <- all_data[(nrow(train) + 1):nrow(all_data),]
 
 print(dim(train))
 
-train <- train[,-which(names(train) == "revenue")]
+train <- train[, -which(names(train) == "revenue")]
 head(all_data)
 
 y <- train$log_revenue
-X <- train[,!(names(train) %in% c("log_revenue"))]
+X <- train[, !(names(train) %in% c("log_revenue"))]
 
 set.seed(42)  # Setting seed for reproducibility
 train_indices <- createDataPartition(y, p = 0.9, list = FALSE)
-X_train <- X[train_indices,]
-X_test <- X[-train_indices,]
+X_train <- X[train_indices, ]
+X_test <- X[-train_indices, ]
 y_train <- y[train_indices]
 y_test <- y[-train_indices]
 
@@ -979,32 +979,89 @@ show_metrics <- function(y_test, y_pred) {
   print(paste("R^2 =", cor(y_pred, y_test) ^ 2))
 }
 
+# Linear Regression
+X_train <- as.data.frame(lapply(X_train, unlist))
+colnames(X_train) <- make.names(colnames(X_train), unique = TRUE)
+
+lr_model <- lm(y_train ~ ., data = X_train)
+
+X_test <- as.data.frame(lapply(X_test, unlist))
+colnames(X_test) <- make.names(colnames(X_test), unique = TRUE)
+
+y_pred_lr <- lr_model %>% predict(X_test)
+show_metrics(y_test, y_pred_lr)
+
+
 # Artificial Neural Network
-library(keras)
+X_train_matrix <- as.matrix(X_train)
 
 model <- keras_model_sequential() %>%
-  layer_dense(units = 356,
-              activation = "relu",
-              input_shape = dim(X)[2]) %>%
+  layer_dense(
+    units = 712,
+    activation = "relu",
+    input_shape = ncol(X_train_matrix)
+  ) %>%
+  layer_dense(units = 356, activation = "relu") %>%
   layer_dense(units = 356, activation = "relu") %>%
   layer_dense(units = 256, activation = "relu") %>%
   layer_dense(units = 1)
 
-# Compile the model
 model %>% compile(
-  optimizer = optimizer_rmsprop(),
-  loss = "mse",
-  metrics = list("mean_squared_logarithmic_error")
+  optimizer = "rmsprop",
+  loss = "mean_squared_error",
+  metrics = c("mean_squared_error")
 )
 
-# Train the model
-epochs <- 100
-history <- model %>% fit(X_train, y_train,
-                         epochs = epochs,
-                         verbose = 0)
+history <- model %>% fit(
+  X_train_matrix,
+  y_train,
+  epochs = 100,
+)
 
-# Make predictions on test data
-test_pred <- model %>% predict(X_test)
+X_test_matrix <- as.matrix(X_test)
+y_pred_nn <- predict(model, X_test_matrix)
+show_metrics(y_test, y_pred_nn)
 
-# Call the show_metrics function
-show_metrics(y_test, test_pred)
+
+# Random Forest
+library(randomForest)
+
+set.seed(42)
+
+# Base Random Forest Regressor
+rf_base <- randomForest(x = X_train, y = y_train)
+y_rf_base_pred <- predict(rf_base, newdata = X_test)
+print("Base Random Forest Regressor:\n")
+show_metrics(y_test, y_rf_base_pred)
+
+n_estimators <- seq(200, 2000, length.out = 10)
+mtry_values <- c("auto", "sqrt")
+max_depth <- c(seq(10, 110, length.out = 11), NULL)
+min_samples_split <- c(2, 5, 10)
+min_samples_leaf <- c(1, 2, 4)
+bootstrap <- c(TRUE, FALSE)
+
+tuning_grid <- expand.grid(
+  ntree = n_estimators,
+  mtry = mtry_values,
+  maxdepth = max_depth,
+  min.node.size = min_samples_leaf,
+  splitrule = min_samples_split,
+  replace = bootstrap
+)
+
+# Tuned Random Forest Regressor
+print("\nTuned Random Forest Regressor:\n")
+rf_tuned <- train(
+  x = X_train,
+  y = y_train,
+  method = "rf",
+  tuneGrid = tuning_grid,
+  importance = TRUE,
+  trControl = trainControl(
+    method = "cv",
+    number = 3,
+    verboseIter = TRUE,
+    allowParallel = TRUE
+  )
+)
