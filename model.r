@@ -989,13 +989,15 @@ X_test <- as.data.frame(lapply(X_test, unlist))
 colnames(X_test) <- make.names(colnames(X_test), unique = TRUE)
 
 y_pred_lr <- lr_model %>% predict(X_test)
+print("Linear Regression Prediction Metrics:")
 show_metrics(y_test, y_pred_lr)
 
 
 # Artificial Neural Network
+library(keras)
 X_train_matrix <- as.matrix(X_train)
 
-model <- keras_model_sequential() %>%
+nn_model <- keras_model_sequential() %>%
   layer_dense(
     units = 712,
     activation = "relu",
@@ -1006,20 +1008,19 @@ model <- keras_model_sequential() %>%
   layer_dense(units = 256, activation = "relu") %>%
   layer_dense(units = 1)
 
-model %>% compile(
+nn_model %>% compile(
   optimizer = "rmsprop",
   loss = "mean_squared_error",
   metrics = c("mean_squared_error")
 )
 
-history <- model %>% fit(
-  X_train_matrix,
-  y_train,
-  epochs = 100,
-)
+history <- nn_model %>% fit(X_train_matrix,
+                            y_train,
+                            epochs = 100, )
 
 X_test_matrix <- as.matrix(X_test)
-y_pred_nn <- predict(model, X_test_matrix)
+y_pred_nn <- predict(nn_model, X_test_matrix)
+print("Neural Network Prediction Metrics:")
 show_metrics(y_test, y_pred_nn)
 
 
@@ -1030,38 +1031,226 @@ set.seed(42)
 
 # Base Random Forest Regressor
 rf_base <- randomForest(x = X_train, y = y_train)
+
 y_rf_base_pred <- predict(rf_base, newdata = X_test)
-print("Base Random Forest Regressor:\n")
+print("Base Random Forest Regressor Prediction Metrics:\n")
 show_metrics(y_test, y_rf_base_pred)
 
+varImpPlot(rf_base)
+
+
+# Tuned Random Forest Regressor
 n_estimators <- seq(200, 2000, length.out = 10)
-mtry_values <- c("auto", "sqrt")
-max_depth <- c(seq(10, 110, length.out = 11), NULL)
+max_features <- c('auto', 'sqrt')
+max_depth <- seq(10, 110, length.out = 11)
+max_depth <-
+  c(max_depth, NA)
 min_samples_split <- c(2, 5, 10)
 min_samples_leaf <- c(1, 2, 4)
 bootstrap <- c(TRUE, FALSE)
 
-tuning_grid <- expand.grid(
-  ntree = n_estimators,
-  mtry = mtry_values,
-  maxdepth = max_depth,
-  min.node.size = min_samples_leaf,
-  splitrule = min_samples_split,
-  replace = bootstrap
+random_grid <- expand.grid(
+  n_estimators = n_estimators,
+  max_features = max_features,
+  max_depth = max_depth,
+  min_samples_split = min_samples_split,
+  min_samples_leaf = min_samples_leaf,
+  bootstrap = bootstrap
 )
 
-# Tuned Random Forest Regressor
-print("\nTuned Random Forest Regressor:\n")
-rf_tuned <- train(
+train_control <- trainControl(
+  method = "cv",
+  number = 3,
+  search = "random",
+  verboseIter = TRUE
+)
+
+rf_tuned <- randomForest(
   x = X_train,
   y = y_train,
-  method = "rf",
-  tuneGrid = tuning_grid,
-  importance = TRUE,
-  trControl = trainControl(
-    method = "cv",
-    number = 3,
-    verboseIter = TRUE,
-    allowParallel = TRUE
-  )
+  trControl = train_control,
+  tuneGrid = random_grid,
+  nIter = 75
 )
+
+y_rf_tuned_pred <- predict(rf_tuned, newdata = X_test)
+print("Tuned Random Forest Regressor Prediction Metrics:\n")
+show_metrics(y_test, y_rf_tuned_pred)
+
+varImpPlot(rf_tuned)
+
+
+# Light Gradient Boosting Machine
+msle <- function(y_true, y_pred) {
+  sqrt(mean((log1p(y_pred) - log1p(y_true)) ^ 2))
+}
+
+params <- list(
+  num_leaves = 30,
+  min_data_in_leaf = 20,
+  objective = "regression",
+  max_depth = 5,
+  learning_rate = 0.01,
+  boosting = "gbdt",
+  feature_fraction = 0.9,
+  bagging_freq = 1,
+  bagging_fraction = 0.9,
+  bagging_seed = 11,
+  metric = "rmse",
+  lambda_l1 = 0.2,
+  verbosity = -1
+)
+
+library(lightgbm)
+
+model_lgb <- lgb.train(
+  params = params,
+  data = lgb.Dataset(data = as.matrix(X_train), label = y_train),
+  nrounds = 20000,
+)
+
+prediction_lgb_test <-
+  predict(model_lgb, newdata = as.matrix(X_test))
+
+show_metrics(y_test, prediction_lgb_test)
+
+
+# Extreme Gradient Boosting
+library(xgboost)
+
+params <- list(
+  objective = "reg:linear",
+  eta = 0.01,
+  max_depth = 6,
+  subsample = 0.6,
+  colsample_bytree = 0.7,
+  eval_metric = "rmse",
+  silent = TRUE
+)
+
+dtrain <- xgb.DMatrix(data = as.matrix(X_train), label = y_train)
+dtest <- xgb.DMatrix(data = as.matrix(X_test))
+
+xgb_model <- xgb.train(
+  params = params,
+  data = dtrain,
+  nrounds = 20000,
+  watchlist = list(train = dtrain),
+  early_stopping_rounds = 10,
+  maximize = FALSE
+)
+
+y_xgb_pred <- predict(xgb_model, as.matrix(X_test))
+show_metrics(y_test, y_xgb_pred)
+
+#
+# # CatBoost Regression
+# library(remotes)
+# remotes::install_url(
+#   'https://github.com/catboost/catboost/releases/download/v1.2.5/catboost-R-windows-x86_64-1.2.5.tgz',
+#   INSTALL_opts = c("--no-multiarch", "--no-test-load")
+# )
+#
+#
+# library(catboost)
+#
+# model <- catboost.load_pool(data = X_train,
+#                             label = y_train,
+#                             cat_features = NULL)
+#
+# fit_model <- catboost.train(
+#   data = model,
+#   num_iterations = 10000,
+#   learning_rate = 0.004,
+#   depth = 5,
+#   col_sample_rate = 0.8,
+#   random_seed = 2020,
+#   bagging_temperature = 0.2,
+#   metric_period = NULL
+# )
+#
+# test_pred <-
+#   catboost.predict(fit_model, data = X_test, prediction_type = "RawFormulaVal")
+#
+# show_metrics(y_test, test_pred)
+
+
+# Elastic-Net
+library(glmnet)
+
+elastic_net_model <-
+  glmnet(
+    x = X_train,
+    y = y_train,
+    alpha = 0.5,
+    lambda = NULL,
+    random.state = 42
+  )
+
+y_elastic_pred <-
+  predict(elastic_net_model, newx = as.matrix(X_test))
+show_metrics(y_test, y_elastic_pred)
+
+# ElasticNetCV Model
+elastic_netCV_model <-
+  cv.glmnet(
+    x = as.matrix(X_train),
+    y = y_train,
+    alpha = 0.5,
+    nfolds = 5,
+    random.state = 42
+  )
+
+y_elastic_CV_pred <-
+  predict(elastic_netCV_model, newx = as.matrix(X_test), s = "lambda.min")
+show_metrics(y_test, y_elastic_CV_pred)
+
+
+# Ridge Regression
+ridged_model <-
+  glmnet(as.matrix(X_train),
+         as.matrix(y_train),
+         alpha = 0,
+         lambda = 0)
+y_ridge_pred <- predict(ridged_model, newx = as.matrix(X_test))
+show_metrics(y_test, y_ridge_pred)
+
+# Ridge Regression with Cross-Validation
+lambdas <- c(0.0005, 0.001, 0.00125, 0.0015, 0.00175, 0.002)
+ridgeCV_model <-
+  cv.glmnet(as.matrix(X_train),
+            as.matrix(y_train),
+            alpha = 0,
+            lambda = lambdas)
+
+optimal_lambda <- ridgeCV_model$lambda.min
+
+y_ridgeCV_pred <-
+  predict(ridgeCV_model, newx = as.matrix(X_test), s = optimal_lambda)
+show_metrics(y_test, y_ridgeCV_pred)
+
+cat("Optimal lambda:", optimal_lambda, "\n")
+
+# With optimal lambda
+optimal_ridge_model <-
+  glmnet(as.matrix(X_train), as.matrix(y_train), lambda = optimal_lambda)
+
+y_optimal_ridge_pred <-
+  predict(optimal_ridge_model, as.matrix(X_test))
+show_metrics(y_test, y_optimal_ridge_pred)
+
+# Support Vector Regression
+library(kernlab)
+
+svr_model <-
+  ksvm(
+    x = as.matrix(X_train),
+    y = as.matrix(y_train),
+    kernel = "rbfdot",
+    kpar = list(sigma = 1 / (ncol(X_train) * 0.1)),
+    C = 100,
+    epsilon = 1
+  )
+
+y_pred_svr <- predict(SVRreg, newdata = X_test)
+show_metrics(y_test, y_pred_svr)
