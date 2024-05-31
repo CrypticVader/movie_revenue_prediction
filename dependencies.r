@@ -1,0 +1,12 @@
+install.packages(
+  "tidyverse",
+  "jsonlite",
+  "dplyr",
+  "wordcloud",
+  "tm",
+  "slam",
+  "stringr",
+  "lubridate",
+  "caret",
+  "keras"
+)

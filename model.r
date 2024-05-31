@@ -1,4 +1,3 @@
-# install.packages("tidyverse", "jsonlite", "dplyr", "wordcloud", "tm", "slam", "stringr", "lubridate", "caret", "keras")
 library(tidyverse)
 library(jsonlite)
 library(dplyr)
@@ -1020,7 +1019,6 @@ history <- nn_model %>% fit(X_train_matrix,
 
 X_test_matrix <- as.matrix(X_test)
 y_pred_nn <- predict(nn_model, X_test_matrix)
-print("Neural Network Prediction Metrics:")
 show_metrics(y_test, y_pred_nn)
 
 
@@ -1231,26 +1229,172 @@ show_metrics(y_test, y_ridgeCV_pred)
 
 cat("Optimal lambda:", optimal_lambda, "\n")
 
-# With optimal lambda
-optimal_ridge_model <-
-  glmnet(as.matrix(X_train), as.matrix(y_train), lambda = optimal_lambda)
-
-y_optimal_ridge_pred <-
-  predict(optimal_ridge_model, as.matrix(X_test))
-show_metrics(y_test, y_optimal_ridge_pred)
 
 # Support Vector Regression
-library(kernlab)
+library(e1071)
 
-svr_model <-
-  ksvm(
-    x = as.matrix(X_train),
-    y = as.matrix(y_train),
-    kernel = "rbfdot",
-    kpar = list(sigma = 1 / (ncol(X_train) * 0.1)),
-    C = 100,
-    epsilon = 1
-  )
+svr_model <- svm(
+  y_train ~ .,
+  data = X_train,
+  kernel = "radial",
+  cost = 100,
+  epsilon = 1
+)
 
-y_pred_svr <- predict(SVRreg, newdata = X_test)
+y_pred_svr <- predict(svr_model, X_test)
 show_metrics(y_test, y_pred_svr)
+
+
+# Perform grid search with cross-validation
+params_selection <- expand.grid(C = seq(10, 200, length.out = 10),
+                                epsilon = seq(0.02, 6, length.out = 10))
+
+# Function for cross-validation
+cv_svr <- function(params, X_train, y_train) {
+  n <- nrow(X_train)
+  folds <- sample(rep(1:5, length.out = n))  # Create 5 folds
+  
+  cv_scores <- numeric(5)
+  for (i in 1:5) {
+    test_idx <- which(folds == i)
+    train_idx <- which(folds != i)
+    
+    model <- tune.svm(
+      X_train[train_idx, ],
+      y_train[train_idx],
+      gamma = 1 / dim(X_train)[2],
+      cost = params["C"],
+      epsilon = params["epsilon"],
+      kernel = "radial"
+    )
+    
+    print(model)
+    
+    y_pred <- predict(model$best.model, X_train[test_idx, ])
+    cv_scores[i] <- mean((y_pred - y_train[test_idx]) ^ 2)  # MSE
+  }
+  
+  return(mean(cv_scores))
+}
+
+# Gridsearch to find the best params
+best_params <-
+  params_selection[which.min(apply(params_selection, 1, cv_svr, X_train, y_train)), ]
+
+print(paste0(
+  "Best Selected Model with params C = ",
+  best_params["C"],
+  ", epsilon = ",
+  best_params["epsilon"]
+))
+
+# Train the model with best parameters
+best_model <- tune.svm(
+  X_train,
+  y_train,
+  gamma = 1 / dim(X_train)[2],
+  cost = best_params["C"],
+  epsilon = best_params["epsilon"],
+  kernel = "radial"
+)$best.model
+
+y_pred <- predict(best_model, X_test)
+show_metrics(y_test, y_pred)
+
+
+# Find top correlated features
+cor_mat <- cor(X_train, y_train, method = "pearson")
+cor_target <- abs(cor_mat)[, 1]
+
+relevant_feature_names <- names(cor_target[cor_target > 0.19])
+relevant_feature_names <-
+  relevant_feature_names[relevant_feature_names != "log_revenue"]
+
+top_features <- sort(as.table(cor_target[cor_target > 0.27]))
+
+# Generate a bar plot of the top features
+par(mar = c(5, 20, 2, 2), cex.lab = 1.5)
+barplot(
+  top_features,
+  horiz = TRUE,
+  main = "Top Features Contributing to revenue",
+  xlab = "Pearson's Coefficient",
+  las = 2,
+  space = 0.4,
+)
+
+print(relevant_feature_names)
+print(length(relevant_feature_names))
+
+minimized_X_train <- X_train[, relevant_feature_names]
+minimized_X_test <- X_test[, relevant_feature_names]
+
+# Training with top features
+svr_pearson <- svm(
+  y_train ~ .,
+  data = minimized_X_train,
+  kernel = "radial",
+  cost = 200,
+  epsilon = 1.67
+)
+
+y_pred_svr_pearson <-
+  predict(svr_pearson, newdata = minimized_X_test)
+show_metrics(y_test, y_pred_svr_pearson)
+
+
+# Applying Principal Component Analysis
+library(stats)
+
+pca <- prcomp(X_train, scale = TRUE)
+
+pca_X_train <- pca$x[, 1:20]
+pca_X_test <- predict(pca, newdata = X_test)[, 1:20]
+
+# Print the explained variance ratio
+print(summary(pca)$importance[3, 1:20])
+
+# Training with top PCA features
+svr_pca <- svm(
+  y_train ~ .,
+  data = pca_X_train,
+  kernel = "radial",
+  cost = 200,
+  epsilon = 1.67
+)
+
+y_pred_svr_pca <- predict(svr_pca, newdata = pca_X_test)
+show_metrics(y_test, y_pred_svr_pca)
+
+
+# Stacked Model
+X_train_meta <-
+  bind_cols(predict(xgb_model, as.matrix(X_train)),
+            predict(svr_model, X_train)) %>% as.matrix()
+y_train_meta <- y_train %>% as.matrix()
+
+X_test_meta <-
+  bind_cols(predict(xgb_model, as.matrix(X_test)), predict(svr_model, X_test)) %>% as.matrix()
+y_test_meta <- y_test
+
+meta_nn <- keras_model_sequential() %>%
+  layer_dense(
+    units = 8,
+    activation = "gelu",
+    kernel_regularizer = regularizer_l1_l2(l1 = 0.01, l2 = 0.01),
+    input_shape = ncol(X_train_meta)
+  ) %>%
+  layer_dense(units = 1)
+
+meta_nn %>% compile(
+  optimizer = "adam",
+  loss = "mean_squared_error",
+  metrics = c("mean_squared_error")
+)
+
+hist_meta <- meta_nn %>% fit(X_train_meta,
+                             y_train_meta,
+                             epochs = 150)
+
+y_pred_meta <- predict(meta_nn, X_test_meta)
+show_metrics(y_test_meta, y_pred_meta)
